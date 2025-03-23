@@ -201,33 +201,27 @@ function addPhotoToGallery(file) {
   reader.readAsDataURL(file);
 }
 
-// Scan documents using Tesseract.js OCR
-async function scanDocuments() {
-  if (photoFiles.length === 0) {
-    alert('Please add at least one photo to scan');
-    return;
-  }
-  
-  // Show loading screen
-  elements.loading.style.display = 'flex';
-  
-  // Clear previous results
-  scannedData = [];
-  
-  try {
-    for (let i = 0; i < photoFiles.length; i++) {
-      const file = photoFiles[i];
+ async function performOCR(imageFile) {
+    try {
+      // Show loading indicator if you have one
       
-      // Use Tesseract.js to perform OCR
-      const result = await Tesseract.recognize(
-        file,
-        'eng+ita', // English and Italian language support
-        {
-          logger: m => {
-            console.log(m);
-          }
-        }
-      );
+      // Initialize worker
+      const worker = await Tesseract.createWorker('eng');
+      
+      // Perform OCR
+      const result = await worker.recognize(imageFile);
+      const extractedText = result.data.text;
+      
+      // Clean up
+      await worker.terminate();
+      
+      // Return the extracted text
+      return extractedText;
+    } catch (error) {
+      console.error('OCR Error:', error);
+      throw error;
+    }
+  }
       
       // Process the OCR result to extract ID information
       const extractedData = processOCRResult(result.data.text, i + 1);

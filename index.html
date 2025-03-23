@@ -42,28 +42,32 @@
                 try {
                     statusElement.textContent = "Processing image, please wait...";
                     
-                    // Create Tesseract worker
-                    const worker = await Tesseract.createWorker();
+                    // Create a scheduler and worker
+                    const scheduler = Tesseract.createScheduler();
+                    const worker = await Tesseract.createWorker('eng');
+                    scheduler.addWorker(worker);
                     
-                    // Add progress logger
-                    worker.setLogger(message => {
+                    // Progress updates
+                    const updateStatus = (message) => {
                         console.log(message);
-                        statusElement.textContent = `${message.status}: ${Math.round(message.progress * 100)}%`;
-                    });
-                    
-                    // Initialize worker
-                    await worker.loadLanguage('eng');
-                    await worker.initialize('eng');
+                        if (message.status === 'recognizing text') {
+                            statusElement.textContent = `Processing: ${Math.round(message.progress * 100)}%`;
+                        } else {
+                            statusElement.textContent = `Processing: ${message.status}`;
+                        }
+                    };
                     
                     // Recognize text
-                    const result = await worker.recognize(file);
+                    const result = await scheduler.addJob('recognize', file, { 
+                        logger: updateStatus 
+                    });
                     
                     // Display result
                     resultText.value = result.data.text;
                     statusElement.textContent = "OCR complete!";
                     
                     // Cleanup
-                    await worker.terminate();
+                    await scheduler.terminate();
                     
                 } catch (error) {
                     console.error('OCR Error:', error);

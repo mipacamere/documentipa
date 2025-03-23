@@ -1,738 +1,605 @@
-// DOM Elements
-document.addEventListener('DOMContentLoaded', function() {
-    const cameraBtn = document.getElementById('camera-btn');
-    const galleryBtn = document.getElementById('gallery-btn');
-    const fileInput = document.getElementById('file-input');
-    const cameraInput = document.getElementById('camera-input');
-    const photoGallery = document.getElementById('photo-gallery');
-    const scanBtn = document.getElementById('scan-btn');
-    const scanResults = document.getElementById('scan-results');
-    const loadingElement = document.getElementById('loading');
-    const dataSummary = document.getElementById('data-summary');
-    const whatsappBtn = document.getElementById('whatsapp-btn');
-    
-    // Tab navigation
-    const tabItems = document.querySelectorAll('.tab-item');
-    const tabContents = document.querySelectorAll('.tab-content');
-    
-    // Language buttons
-    const langBtns = document.querySelectorAll('.lang-btn');
-    let currentLang = 'en';
-    
-    // Application state
-    let uploadedImages = [];
-    let scannedData = [];
-    
-    // Event Listeners
-    cameraBtn.addEventListener('click', () => cameraInput.click());
-    galleryBtn.addEventListener('click', () => fileInput.click());
-    
-    fileInput.addEventListener('change', handleFileSelect);
-    cameraInput.addEventListener('change', handleFileSelect);
-    
-    scanBtn.addEventListener('click', scanDocuments);
-    
-    whatsappBtn.addEventListener('click', sendViaWhatsApp);
-    
-    // Tab navigation event listeners
-    tabItems.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabId = tab.getAttribute('data-tab');
-            
-            // Update active tab
-            tabItems.forEach(item => item.classList.remove('active'));
-            tab.classList.add('active');
-            
-            // Update active content
-            tabContents.forEach(content => content.classList.remove('active'));
-            document.getElementById(`${tabId}-tab`).classList.add('active');
-            
-            // If switching to send tab, update data summary
-            if (tabId === 'send') {
-                updateDataSummary();
-            }
-        });
-    });
-    
-    // Language switcher
-    langBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            langBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentLang = btn.getAttribute('data-lang');
-            updateUILanguage();
-        });
-    });
-    
-    // Functions
-    function handleFileSelect(event) {
-        const files = event.target.files;
-        
-        if (files.length > 0) {
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    
-                    reader.onload = function(e) {
-                        const imageData = {
-                            id: Date.now() + i,
-                            file: file,
-                            src: e.target.result
-                        };
-                        
-                        uploadedImages.push(imageData);
-                        addImageToGallery(imageData);
-                    };
-                    
-                    reader.readAsDataURL(file);
-                }
-            }
-            
-            // Reset file input
-            event.target.value = '';
-            
-            // Show scan button if images are uploaded
-            if (uploadedImages.length > 0) {
-                scanBtn.style.display = 'inline-flex';
-            }
-        }
-    }
-    
-    function addImageToGallery(imageData) {
-        const photoItem = document.createElement('div');
-        photoItem.className = 'photo-item';
-        photoItem.dataset.id = imageData.id;
-        
-        photoItem.innerHTML = `
-            <img src="${imageData.src}" alt="ID Document">
-            <div class="remove-photo" data-id="${imageData.id}">×</div>
-        `;
-        
-        photoGallery.appendChild(photoItem);
-        
-        // Add event listener to remove button
-        photoItem.querySelector('.remove-photo').addEventListener('click', function() {
-            const photoId = this.getAttribute('data-id');
-            removeImage(photoId);
-        });
-    }
-    
-    function removeImage(photoId) {
-        // Remove from DOM
-        const photoElement = document.querySelector(`.photo-item[data-id="${photoId}"]`);
-        if (photoElement) {
-            photoElement.remove();
-        }
-        
-        // Remove from array
-        uploadedImages = uploadedImages.filter(img => img.id != photoId);
-        
-        // Hide scan button if no images
-        if (uploadedImages.length === 0) {
-            scanBtn.style.display = 'none';
-        }
-    }
-    
-    function scanDocuments() {
-        if (uploadedImages.length === 0) {
-            alert('Please upload at least one ID document.');
-            return;
-        }
-        
-        // Check if Tesseract.js is available
-        if (typeof Tesseract === 'undefined') {
-            alert('OCR library not loaded. Please check your internet connection and reload the page.');
-            return;
-        }
-        
-        // Show loading indicator
-        loadingElement.style.display = 'block';
-        scanBtn.disabled = true;
-        
-        // Clear previous results
-        scannedData = [];
-        scanResults.innerHTML = '';
-        
-        // Process each image with OCR
-        const scanPromises = uploadedImages.map((image, index) => 
-            processImageWithOCR(image, index + 1)
-        );
-        
-        Promise.all(scanPromises)
-            .then(() => {
-                // Display results
-                displayScanResults();
-            })
-            .catch(error => {
-                console.error('Error scanning documents:', error);
-                scanResults.innerHTML = `<p>Error scanning documents: ${error.message}</p>`;
-            })
-            .finally(() => {
-                // Hide loading indicator
-                loadingElement.style.display = 'none';
-                scanBtn.disabled = false;
-                
-                // Enable WhatsApp button
-                whatsappBtn.disabled = false;
-            });
-    }
-    
-    function processImageWithOCR(image, idNumber) {
-        return Tesseract.recognize(
-            image.src,
-            'eng+ita', // Language recognition for English and Italian
-            {
-                logger: m => console.log(m)
-            }
-        ).then(({ data: { text } }) => {
-            // Extract relevant information from the OCR text
-            const extractedData = extractIDInformation(text);
-            
-            // Store the scanned data
-            scannedData.push({
-                id: idNumber,
-                imageId: image.id,
-                rawText: text,
-                extractedData: extractedData
-            });
-            
-            return extractedData;
-        });
-    }
-    
-    function extractIDInformation(text) {
-        // This is a simple extraction logic
-        // In a real application, this would be more sophisticated
-        const lines = text.split('\n').filter(line => line.trim() !== '');
-        
-        // Basic extraction - looking for common patterns in IDs
-        const data = {
-            documentType: findDocumentType(text),
-            name: findName(text),
-            surname: findSurname(text),
-            birthDate: findBirthDate(text),
-            documentNumber: findDocumentNumber(text),
-            expiryDate: findExpiryDate(text),
-            nationality: findNationality(text),
-            address: findAddress(text)
-        };
-        
-        return data;
-    }
-    
-    // Helper functions to extract specific data from OCR text
-    function findDocumentType(text) {
-        const docTypes = ['IDENTITY CARD', 'PASSPORT', 'DRIVER LICENSE', 'CARTA D\'IDENTITÀ', 'PATENTE'];
-        for (const type of docTypes) {
-            if (text.toUpperCase().includes(type)) {
-                return type;
-            }
-        }
-        return 'Unknown';
-    }
-    
-    function findName(text) {
-        const namePatterns = [
-            /NAME[:\s]+([A-Za-z\s]+)/i,
-            /NOME[:\s]+([A-Za-z\s]+)/i,
-            /FIRST NAME[:\s]+([A-Za-z\s]+)/i
-        ];
-        
-        for (const pattern of namePatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        return 'Not found';
-    }
-    
-    function findSurname(text) {
-        const surnamePatterns = [
-            /SURNAME[:\s]+([A-Za-z\s]+)/i,
-            /COGNOME[:\s]+([A-Za-z\s]+)/i,
-            /LAST NAME[:\s]+([A-Za-z\s]+)/i
-        ];
-        
-        for (const pattern of surnamePatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        return 'Not found';
-    }
-    
-    function findBirthDate(text) {
-        // Common date formats: DD.MM.YYYY, DD/MM/YYYY, etc.
-        const datePatterns = [
-            /BIRTH\s+DATE[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /DATA\s+DI\s+NASCITA[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /DOB[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /NATO\s+IL[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i
-        ];
-        
-        for (const pattern of datePatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        // Try to find any date format
-        const genericDatePattern = /([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/;
-        const match = text.match(genericDatePattern);
-        if (match && match[1]) {
-            return match[1].trim();
-        }
-        
-        return 'Not found';
-    }
-    
-    function findDocumentNumber(text) {
-        const numberPatterns = [
-            /DOCUMENT\s+NO[\.:\s]+([A-Z0-9]+)/i,
-            /NUMERO[:\s]+([A-Z0-9]+)/i,
-            /ID\s+NUMBER[:\s]+([A-Z0-9]+)/i,
-            /PASSPORT\s+NO[\.:\s]+([A-Z0-9]+)/i
-        ];
-        
-        for (const pattern of numberPatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        // Try to find alphanumeric sequences that might be document numbers
-        const genericPattern = /([A-Z]{2}[0-9]{6,7})/;
-        const match = text.match(genericPattern);
-        if (match && match[1]) {
-            return match[1].trim();
-        }
-        
-        return 'Not found';
-    }
-    
-    function findExpiryDate(text) {
-        const expiryPatterns = [
-            /EXPIRY\s+DATE[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /EXPIRES[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /DATA\s+DI\s+SCADENZA[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i,
-            /SCADE\s+IL[:\s]+([0-9]{1,2}[\/\.\-][0-9]{1,2}[\/\.\-][0-9]{2,4})/i
-        ];
-        
-        for (const pattern of expiryPatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        return 'Not found';
-    }
-    
-    function findNationality(text) {
-        const nationalityPatterns = [
-            /NATIONALITY[:\s]+([A-Za-z\s]+)/i,
-            /NATIONALITÀ[:\s]+([A-Za-z\s]+)/i,
-            /CITTADINANZA[:\s]+([A-Za-z\s]+)/i
-        ];
-        
-        for (const pattern of nationalityPatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        return 'Not found';
-    }
-    
-    function findAddress(text) {
-        const addressPatterns = [
-            /ADDRESS[:\s]+([A-Za-z0-9\s,.]+)/i,
-            /INDIRIZZO[:\s]+([A-Za-z0-9\s,.]+)/i,
-            /RESIDENZA[:\s]+([A-Za-z0-9\s,.]+)/i
-        ];
-        
-        for (const pattern of addressPatterns) {
-            const match = text.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        
-        return 'Not found';
-    }
-    
-    function displayScanResults() {
-        if (scannedData.length === 0) {
-            scanResults.innerHTML = '<p>No data found from scanned documents.</p>';
-            return;
-        }
-        
-        let resultsHTML = '';
-        
-        scannedData.forEach(data => {
-            const { id, extractedData } = data;
-            
-            resultsHTML += `
-                <div class="id-data">
-                    <h3>ID Document #${id}</h3>
-                    <p><strong>Document Type:</strong> ${extractedData.documentType}</p>
-                    <p><strong>Name:</strong> ${extractedData.name}</p>
-                    <p><strong>Surname:</strong> ${extractedData.surname}</p>
-                    <p><strong>Birth Date:</strong> ${extractedData.birthDate}</p>
-                    <p><strong>Document Number:</strong> ${extractedData.documentNumber}</p>
-                    <p><strong>Expiry Date:</strong> ${extractedData.expiryDate}</p>
-                    <p><strong>Nationality:</strong> ${extractedData.nationality}</p>
-                    <p><strong>Address:</strong> ${extractedData.address}</p>
-                </div>
-            `;
-        });
-        
-        scanResults.innerHTML = resultsHTML;
-        
-        // Switch to send tab
-        document.querySelector('.tab-item[data-tab="send"]').click();
-    }
-    
-    function updateDataSummary() {
-        if (scannedData.length === 0) {
-            dataSummary.innerHTML = '<p>No data available. Please scan documents first.</p>';
-            whatsappBtn.disabled = true;
-            return;
-        }
-        
-        let summaryHTML = '<h3>Document Summary</h3>';
-        
-        scannedData.forEach(data => {
-            const { id, extractedData } = data;
-            
-            summaryHTML += `
-                <div class="id-data">
-                    <h3>ID Document #${id}</h3>
-                    <p><strong>Document Type:</strong> ${extractedData.documentType}</p>
-                    <p><strong>Name:</strong> ${extractedData.name}</p>
-                    <p><strong>Surname:</strong> ${extractedData.surname}</p>
-                    <p><strong>Birth Date:</strong> ${extractedData.birthDate}</p>
-                    <p><strong>Document Number:</strong> ${extractedData.documentNumber}</p>
-                </div>
-            `;
-        });
-        
-        dataSummary.innerHTML = summaryHTML;
-        whatsappBtn.disabled = false;
-    }
-    
-    function sendViaWhatsApp() {
-        if (scannedData.length === 0) {
-            alert('No data to send. Please scan documents first.');
-            return;
-        }
-        
-        // Format data for WhatsApp message
-        let messageText = 'ID DOCUMENT DATA:\n\n';
-        
-        scannedData.forEach(data => {
-            const { id, extractedData } = data;
-            
-            messageText += `ID #${id}:\n`;
-            messageText += `Document Type: ${extractedData.documentType}\n`;
-            messageText += `Name: ${extractedData.name}\n`;
-            messageText += `Surname: ${extractedData.surname}\n`;
-            messageText += `Birth Date: ${extractedData.birthDate}\n`;
-            messageText += `Document Number: ${extractedData.documentNumber}\n`;
-            messageText += `Expiry Date: ${extractedData.expiryDate}\n`;
-            messageText += `Nationality: ${extractedData.nationality}\n`;
-            messageText += `Address: ${extractedData.address}\n\n`;
-        });
-        
-        // Open WhatsApp with the message
-        const encodedMessage = encodeURIComponent(messageText);
-        const whatsappUrl = `https://wa.me/393651855555?text=${encodedMessage}`;
-        
-        window.open(whatsappUrl, '_blank');
-    }
-    
-    function updateUILanguage() {
-        const translations = {
-            en: {
-                title: 'ID Scanner',
-                scanTab: 'Scan ID',
-                sendTab: 'Send Data',
-                uploadTitle: 'Upload ID Documents',
-                uploadDesc: 'Take a photo or select images of identification documents to scan',
-                takePhoto: 'Take Photo',
-                selectGallery: 'Select from Gallery',
-                scanBtn: 'Scan Documents',
-                scannedDataTitle: 'Scanned Data',
-                noDocuments: 'No documents scanned yet. Upload IDs and press the Scan button.',
-                sendTitle: 'Send Documents Data',
-                sendDesc: 'Send the scanned ID data to the property via WhatsApp',
-                noDataAvailable: 'No data available. Please scan documents first.',
-                sendWhatsApp: 'Send via WhatsApp',
-                loading: 'Processing images, please wait...',
-                documentType: 'Document Type',
-                name: 'Name',
-                surname: 'Surname',
-                birthDate: 'Birth Date',
-                documentNumber: 'Document Number',
-                expiryDate: 'Expiry Date',
-                nationality: 'Nationality',
-                address: 'Address'
-            },
-            it: {
-                title: 'Scanner Documenti',
-                scanTab: 'Scansiona',
-                sendTab: 'Invia Dati',
-                uploadTitle: 'Carica Documenti ID',
-                uploadDesc: 'Scatta una foto o seleziona immagini dei documenti di identità da scansionare',
-                takePhoto: 'Scatta Foto',
-                selectGallery: 'Seleziona dalla Galleria',
-                scanBtn: 'Scansiona Documenti',
-                scannedDataTitle: 'Dati Scansionati',
-                noDocuments: 'Nessun documento scansionato. Carica documenti e premi il pulsante Scansiona.',
-                sendTitle: 'Invia Dati Documenti',
-                sendDesc: 'Invia i dati ID scansionati alla proprietà tramite WhatsApp',
-                noDataAvailable: 'Nessun dato disponibile. Per favore scansiona i documenti prima.',
-                sendWhatsApp: 'Invia tramite WhatsApp',
-                loading: 'Elaborazione immagini, attendere prego...',
-                documentType: 'Tipo Documento',
-                name: 'Nome',
-                surname: 'Cognome',
-                birthDate: 'Data di Nascita',
-                documentNumber: 'Numero Documento',
-                expiryDate: 'Data di Scadenza',
-                nationality: 'Nazionalità',
-                address: 'Indirizzo'
-            }
-        };
-        
-        // Get current language texts
-        const texts = translations[currentLang];
-        
-        // Update the UI with the selected language
-        document.querySelector('.header h1').textContent = texts.title;
-        document.querySelectorAll('.tab-item')[0].querySelector('span:not(.material-icons)').textContent = texts.scanTab;
-        document.querySelectorAll('.tab-item')[1].querySelector('span:not(.material-icons)').textContent = texts.sendTab;
-        
-        // Update scan tab
-        document.querySelector('#scan-section .section-title').textContent = texts.uploadTitle;
-        document.querySelector('#scan-section p').textContent = texts.uploadDesc;
-        document.querySelector('#camera-btn span').textContent = texts.takePhoto;
-        document.querySelector('#gallery-btn span').textContent = texts.selectGallery;
-        document.querySelector('#scan-btn').textContent = texts.scanBtn;
-        document.querySelector('#results-section .section-title').textContent = texts.scannedDataTitle;
-        
-        if (scanResults.innerHTML === '' || scanResults.innerHTML.includes('No documents scanned yet') || scanResults.innerHTML.includes('Nessun documento scansionato')) {
-            scanResults.innerHTML = `<p>${texts.noDocuments}</p>`;
-        }
-        
-        // Update send tab
-        document.querySelector('#send-section .section-title').textContent = texts.sendTitle;
-        document.querySelector('#send-section p').textContent = texts.sendDesc;
-        document.querySelector('#whatsapp-btn span').textContent = texts.sendWhatsApp;
-        
-        // Update loading text
-        document.querySelector('#loading p').textContent = texts.loading;
-        
-        // Update any existing scanned data
-        updateScanResultsLanguage(texts);
-        updateDataSummaryLanguage(texts);
-    }
-    
-    function updateScanResultsLanguage(texts) {
-        if (scannedData.length === 0) return;
-        
-        // Replace labels in scan results
-        const resultElements = scanResults.querySelectorAll('.id-data');
-        resultElements.forEach(el => {
-            el.querySelectorAll('p').forEach(p => {
-                updateFieldLabel(p, texts);
-            });
-        });
-    }
-    
-    function updateDataSummaryLanguage(texts) {
-        if (scannedData.length === 0) return;
-        
-        // Replace labels in data summary
-        const summaryElements = dataSummary.querySelectorAll('.id-data');
-        summaryElements.forEach(el => {
-            el.querySelectorAll('p').forEach(p => {
-                updateFieldLabel(p, texts);
-            });
-        });
-    }
-    
-    function updateFieldLabel(element, texts) {
-        if (element.innerHTML.includes('Document Type')) {
-            element.innerHTML = element.innerHTML.replace('Document Type', texts.documentType);
-        } else if (element.innerHTML.includes('Name')) {
-            element.innerHTML = element.innerHTML.replace('Name', texts.name);
-        } else if (element.innerHTML.includes('Surname')) {
-            element.innerHTML = element.innerHTML.replace('Surname', texts.surname);
-        } else if (element.innerHTML.includes('Birth Date')) {
-            element.innerHTML = element.innerHTML.replace('Birth Date', texts.birthDate);
-        } else if (element.innerHTML.includes('Document Number')) {
-            element.innerHTML = element.innerHTML.replace('Document Number', texts.documentNumber);
-        } else if (element.innerHTML.includes('Expiry Date')) {
-            element.innerHTML = element.innerHTML.replace('Expiry Date', texts.expiryDate);
-        } else if (element.innerHTML.includes('Nationality')) {
-            element.innerHTML = element.innerHTML.replace('Nationality', texts.nationality);
-        } else if (element.innerHTML.includes('Address')) {
-            element.innerHTML = element.innerHTML.replace('Address', texts.address);
-        }
-    }
-    
-    // Initialize the app
-    function initApp() {
-        // Set default language
-        updateUILanguage();
-        
-        // Hide scan button initially
-        scanBtn.style.display = 'none';
-        
-        // Initialize empty scan results
-        scanResults.innerHTML = '<p>' + (currentLang === 'en' ? 'No documents scanned yet. Upload IDs and press the Scan button.' : 'Nessun documento scansionato. Carica documenti e premi il pulsante Scansiona.') + '</p>';
-        
-        // Hide loading indicator
-        loadingElement.style.display = 'none';
-        
-        // Disable WhatsApp button initially
-        whatsappBtn.disabled = true;
+// Global variables
+let deferredPrompt;
+let photoFiles = [];
+let scannedData = [];
+let currentLanguage = 'en';
 
-        // Register Service Worker
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-            .then(registration => {
-                console.log('ServiceWorker registration successful with scope: ', registration.scope);
-            })
-            .catch(error => {
-                console.log('ServiceWorker registration failed: ', error);
-            });
-    });
+// Translations
+const translations = {
+  en: {
+    scanTitle: 'Upload ID Documents',
+    scanDescription: 'Take a photo or select images of identification documents to scan',
+    takePhoto: 'Take Photo',
+    selectGallery: 'Select from Gallery',
+    scanDocuments: 'Scan Documents',
+    scannedData: 'Scanned Data',
+    sendTitle: 'Send Documents Data',
+    sendDescription: 'Send the scanned ID data to the property via WhatsApp',
+    sendWhatsApp: 'Send via WhatsApp',
+    processing: 'Processing images, please wait...',
+    noData: 'No data scanned yet. Please scan documents first.',
+    idCard: 'ID Card',
+    name: 'Name',
+    surname: 'Surname',
+    dateOfBirth: 'Date of Birth',
+    documentNumber: 'Document Number',
+    expiryDate: 'Expiry Date',
+    nationality: 'Nationality',
+    offline: 'You are currently offline',
+    documentExtracted: 'Document data extracted successfully',
+    scanningDocument: 'Scanning document',
+    errorScanning: 'Error scanning document'
+  },
+  it: {
+    scanTitle: 'Carica Documenti d\'Identità',
+    scanDescription: 'Scatta una foto o seleziona immagini di documenti di identità da scansionare',
+    takePhoto: 'Scatta Foto',
+    selectGallery: 'Seleziona dalla Galleria',
+    scanDocuments: 'Scansiona Documenti',
+    scannedData: 'Dati Scansionati',
+    sendTitle: 'Invia Dati dei Documenti',
+    sendDescription: 'Invia i dati dell\'ID scansionati alla struttura tramite WhatsApp',
+    sendWhatsApp: 'Invia tramite WhatsApp',
+    processing: 'Elaborazione immagini, attendere prego...',
+    noData: 'Nessun dato scansionato ancora. Per favore scansiona prima i documenti.',
+    idCard: 'Carta d\'Identità',
+    name: 'Nome',
+    surname: 'Cognome',
+    dateOfBirth: 'Data di Nascita',
+    documentNumber: 'Numero Documento',
+    expiryDate: 'Data di Scadenza',
+    nationality: 'Nazionalità',
+    offline: 'Sei attualmente offline',
+    documentExtracted: 'Dati del documento estratti con successo',
+    scanningDocument: 'Scansione documento',
+    errorScanning: 'Errore durante la scansione del documento'
+  }
+};
+
+// DOM elements
+const elements = {
+  tabs: document.querySelectorAll('.tab-item'),
+  tabContents: document.querySelectorAll('.tab-content'),
+  cameraBtn: document.getElementById('camera-btn'),
+  galleryBtn: document.getElementById('gallery-btn'),
+  scanBtn: document.getElementById('scan-btn'),
+  whatsAppBtn: document.getElementById('whatsapp-btn'),
+  fileInput: document.getElementById('file-input'),
+  cameraInput: document.getElementById('camera-input'),
+  photoGallery: document.getElementById('photo-gallery'),
+  scanResults: document.getElementById('scan-results'),
+  dataSummary: document.getElementById('data-summary'),
+  loading: document.getElementById('loading'),
+  langBtns: document.querySelectorAll('.lang-btn')
+};
+
+// Initialize the application
+function initApp() {
+  // Hide loading screen initially
+  elements.loading.style.display = 'none';
+  
+  // Register service worker
+  registerServiceWorker();
+  
+  // Set up event listeners
+  setupEventListeners();
+  
+  // Initialize language
+  updateLanguage(currentLanguage);
+  
+  // Setup offline detection
+  setupOfflineDetection();
+  
+  // Setup install prompt
+  setupInstallPrompt();
 }
 
-// Add PWA install prompt
-let deferredPrompt;
-const installButton = document.createElement('button');
-installButton.classList.add('install-button');
-installButton.textContent = 'Install App';
-installButton.style.display = 'none';
+// Register service worker for PWA functionality
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('ServiceWorker registration successful with scope: ', registration.scope);
+        })
+        .catch(error => {
+          console.log('ServiceWorker registration failed: ', error);
+        });
+    });
+  }
+}
 
-// Placeholder for the installation button in your UI
-// You can add this to your app header or as a fixed position button
-document.querySelector('.header').appendChild(installButton);
+// Set up event listeners for UI interactions
+function setupEventListeners() {
+  // Tab navigation
+  elements.tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabId = tab.getAttribute('data-tab');
+      switchTab(tabId);
+    });
+  });
+  
+  // Camera button
+  elements.cameraBtn.addEventListener('click', () => {
+    elements.cameraInput.click();
+  });
+  
+  // Gallery button
+  elements.galleryBtn.addEventListener('click', () => {
+    elements.fileInput.click();
+  });
+  
+  // File input (gallery) change
+  elements.fileInput.addEventListener('change', handleFileSelection);
+  
+  // Camera input change
+  elements.cameraInput.addEventListener('change', handleFileSelection);
+  
+  // Scan button
+  elements.scanBtn.addEventListener('click', scanDocuments);
+  
+  // WhatsApp button
+  elements.whatsAppBtn.addEventListener('click', sendToWhatsApp);
+  
+  // Language buttons
+  elements.langBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lang = btn.getAttribute('data-lang');
+      updateLanguage(lang);
+    });
+  });
+}
 
-window.addEventListener('beforeinstallprompt', (e) => {
+// Handle file selection from camera or gallery
+function handleFileSelection(event) {
+  const files = event.target.files;
+  
+  if (files && files.length > 0) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      // Check if file is an image
+      if (file.type.match('image.*')) {
+        addPhotoToGallery(file);
+        photoFiles.push(file);
+      }
+    }
+  }
+  
+  // Reset the input to allow selecting the same file again
+  event.target.value = '';
+}
+
+// Add a photo to the gallery
+function addPhotoToGallery(file) {
+  const reader = new FileReader();
+  
+  reader.onload = function(e) {
+    const photoItem = document.createElement('div');
+    photoItem.className = 'photo-item';
+    
+    const img = document.createElement('img');
+    img.src = e.target.result;
+    img.alt = 'ID Document';
+    
+    const removeBtn = document.createElement('div');
+    removeBtn.className = 'remove-photo';
+    removeBtn.innerHTML = '<span class="material-icons">close</span>';
+    removeBtn.addEventListener('click', () => {
+      const index = Array.from(elements.photoGallery.children).indexOf(photoItem);
+      if (index !== -1) {
+        photoFiles.splice(index, 1);
+        photoItem.remove();
+      }
+    });
+    
+    photoItem.appendChild(img);
+    photoItem.appendChild(removeBtn);
+    elements.photoGallery.appendChild(photoItem);
+  };
+  
+  reader.readAsDataURL(file);
+}
+
+// Scan documents using Tesseract.js OCR
+async function scanDocuments() {
+  if (photoFiles.length === 0) {
+    alert('Please add at least one photo to scan');
+    return;
+  }
+  
+  // Show loading screen
+  elements.loading.style.display = 'flex';
+  
+  // Clear previous results
+  scannedData = [];
+  
+  try {
+    for (let i = 0; i < photoFiles.length; i++) {
+      const file = photoFiles[i];
+      
+      // Use Tesseract.js to perform OCR
+      const result = await Tesseract.recognize(
+        file,
+        'eng+ita', // English and Italian language support
+        {
+          logger: m => {
+            console.log(m);
+          }
+        }
+      );
+      
+      // Process the OCR result to extract ID information
+      const extractedData = processOCRResult(result.data.text, i + 1);
+      scannedData.push(extractedData);
+      
+      console.log(`Document ${i + 1} scanned:`, extractedData);
+    }
+    
+    // Display results
+    displayResults();
+    
+    // Enable WhatsApp button
+    elements.whatsAppBtn.disabled = false;
+    
+    // Switch to results section
+    document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+    
+  } catch (error) {
+    console.error('Error during scanning:', error);
+    alert('An error occurred during scanning. Please try again.');
+  } finally {
+    // Hide loading screen
+    elements.loading.style.display = 'none';
+  }
+}
+
+// Process OCR result to extract ID information
+function processOCRResult(text, idNumber) {
+  console.log('Raw OCR text:', text);
+  
+  // Default extracted data structure
+  const extractedData = {
+    idNumber: idNumber,
+    documentType: 'ID Card', // Default type
+    name: findNameInText(text),
+    surname: findSurnameInText(text),
+    dateOfBirth: findDateOfBirthInText(text),
+    documentNumber: findDocumentNumberInText(text),
+    expiryDate: findExpiryDateInText(text),
+    nationality: findNationalityInText(text),
+    rawText: text // Store raw OCR text for debugging
+  };
+  
+  return extractedData;
+}
+
+// Helper functions to extract specific data from OCR text
+function findNameInText(text) {
+  // Look for patterns like "Name: John" or "Nome: John"
+  const namePatterns = [
+    /\b(?:Name|Nome)\s*[:]\s*([A-Za-z]+)/i,
+    /\b(?:First name|Nome)\b[^\n\r]*?([A-Za-z]+)/i,
+    /\b(?:Given name|Nome)\b[^\n\r]*?([A-Za-z]+)/i
+  ];
+  
+  for (const pattern of namePatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+function findSurnameInText(text) {
+  // Look for patterns like "Surname: Smith" or "Cognome: Smith"
+  const surnamePatterns = [
+    /\b(?:Surname|Cognome)\s*[:]\s*([A-Za-z]+)/i,
+    /\b(?:Last name|Cognome)\b[^\n\r]*?([A-Za-z]+)/i,
+    /\b(?:Family name|Cognome)\b[^\n\r]*?([A-Za-z]+)/i
+  ];
+  
+  for (const pattern of surnamePatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+function findDateOfBirthInText(text) {
+  // Look for date patterns like DD/MM/YYYY or DD.MM.YYYY
+  const dobPatterns = [
+    /\b(?:Date of Birth|Data di Nascita|DOB|Birth Date|NATO IL)\s*[:]\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i,
+    /\b(?:Born|Nato)\s*(?:on|il)?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i,
+    /(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/
+  ];
+  
+  for (const pattern of dobPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+function findDocumentNumberInText(text) {
+  // Look for document number patterns
+  const docNumberPatterns = [
+    /\b(?:Document Number|Numero Documento|ID Number|Card Number|Document No|Doc[\.:])\s*[:]\s*([A-Z0-9]+)/i,
+    /\b(?:Nr|No|Num)[\.:]?\s*([A-Z0-9]+)/i,
+    /([A-Z]{2}[0-9]{6,7})/
+  ];
+  
+  for (const pattern of docNumberPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+function findExpiryDateInText(text) {
+  // Look for expiry date patterns
+  const expiryPatterns = [
+    /\b(?:Expiry Date|Data di Scadenza|Expiry|Expiration Date|SCAD|Scadenza|Valid Until)\s*[:]\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i,
+    /\b(?:Expires|Scade|Valid to)\s*(?:on)?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i
+  ];
+  
+  for (const pattern of expiryPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+function findNationalityInText(text) {
+  // Look for nationality patterns
+  const nationalityPatterns = [
+    /\b(?:Nationality|Nazionalità|Cittadinanza)\s*[:]\s*([A-Za-z]+)/i,
+    /\b(?:Nation|Nazione)\s*[:]\s*([A-Za-z]+)/i,
+    /\b(?:ITA|ITALIANA|ITALIAN|ESP|ESPAÑOLA|FRA|FRANCESE)\b/i
+  ];
+  
+  for (const pattern of nationalityPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    } else if (match) {
+      // For the last pattern which doesn't have capture groups
+      return match[0].trim();
+    }
+  }
+  
+  return 'Not found';
+}
+
+// Display scanned results in the UI
+function displayResults() {
+  elements.scanResults.innerHTML = '';
+  elements.dataSummary.innerHTML = '';
+  
+  if (scannedData.length === 0) {
+    elements.scanResults.innerHTML = `<p>${translations[currentLanguage].noData}</p>`;
+    return;
+  }
+  
+  scannedData.forEach(data => {
+    const idDataElement = document.createElement('div');
+    idDataElement.className = 'id-data';
+    
+    idDataElement.innerHTML = `
+      <h3>${translations[currentLanguage].idCard} #${data.idNumber}</h3>
+      <p><strong>${translations[currentLanguage].name}:</strong> ${data.name}</p>
+      <p><strong>${translations[currentLanguage].surname}:</strong> ${data.surname}</p>
+      <p><strong>${translations[currentLanguage].dateOfBirth}:</strong> ${data.dateOfBirth}</p>
+      <p><strong>${translations[currentLanguage].documentNumber}:</strong> ${data.documentNumber}</p>
+      <p><strong>${translations[currentLanguage].expiryDate}:</strong> ${data.expiryDate}</p>
+      <p><strong>${translations[currentLanguage].nationality}:</strong> ${data.nationality}</p>
+    `;
+    
+    elements.scanResults.appendChild(idDataElement);
+    
+    // Clone for data summary
+    const dataSummaryElement = idDataElement.cloneNode(true);
+    elements.dataSummary.appendChild(dataSummaryElement);
+  });
+}
+
+// Switch between tabs
+function switchTab(tabId) {
+  // Update tab buttons
+  elements.tabs.forEach(tab => {
+    if (tab.getAttribute('data-tab') === tabId) {
+      tab.classList.add('active');
+    } else {
+      tab.classList.remove('active');
+    }
+  });
+  
+  // Update tab contents
+  elements.tabContents.forEach(content => {
+    if (content.id === `${tabId}-tab`) {
+      content.classList.add('active');
+    } else {
+      content.classList.remove('active');
+    }
+  });
+}
+
+// Send data to WhatsApp
+function sendToWhatsApp() {
+  if (scannedData.length === 0) {
+    alert(translations[currentLanguage].noData);
+    return;
+  }
+  
+  let message = "ID Scanner Results:\n\n";
+  
+  scannedData.forEach(data => {
+    message += `ID Card #${data.idNumber}:\n`;
+    message += `${translations[currentLanguage].name}: ${data.name}\n`;
+    message += `${translations[currentLanguage].surname}: ${data.surname}\n`;
+    message += `${translations[currentLanguage].dateOfBirth}: ${data.dateOfBirth}\n`;
+    message += `${translations[currentLanguage].documentNumber}: ${data.documentNumber}\n`;
+    message += `${translations[currentLanguage].expiryDate}: ${data.expiryDate}\n`;
+    message += `${translations[currentLanguage].nationality}: ${data.nationality}\n\n`;
+  });
+  
+  // Encode the message for WhatsApp URL
+  const encodedMessage = encodeURIComponent(message);
+  
+  // Open WhatsApp with the encoded message
+  window.open(`https://wa.me/393651855555?text=${encodedMessage}`, '_blank');
+}
+
+// Update UI language
+function updateLanguage(lang) {
+  currentLanguage = lang;
+  
+  // Update language buttons
+  elements.langBtns.forEach(btn => {
+    if (btn.getAttribute('data-lang') === lang) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  
+  // Update section titles and descriptions
+  document.querySelector('#scan-section .section-title').textContent = translations[lang].scanTitle;
+  document.querySelector('#scan-section p').textContent = translations[lang].scanDescription;
+  document.querySelector('#results-section .section-title').textContent = translations[lang].scannedData;
+  document.querySelector('#send-section .section-title').textContent = translations[lang].sendTitle;
+  document.querySelector('#send-section p').textContent = translations[lang].sendDescription;
+  
+  // Update buttons
+  elements.cameraBtn.innerHTML = `<span class="material-icons">camera_alt</span><span>${translations[lang].takePhoto}</span>`;
+  elements.galleryBtn.innerHTML = `<span class="material-icons">photo_library</span><span>${translations[lang].selectGallery}</span>`;
+  elements.scanBtn.innerHTML = `<span class="material-icons">document_scanner</span>${translations[lang].scanDocuments}`;
+  elements.whatsAppBtn.innerHTML = `<span class="material-icons">whatsapp</span><span>${translations[lang].sendWhatsApp}</span>`;
+  
+  // Update tabs
+  document.querySelector('.tab-item[data-tab="scan"] span:last-child').textContent = translations[lang].scanTitle;
+  document.querySelector('.tab-item[data-tab="send"] span:last-child').textContent = translations[lang].sendTitle;
+  
+  // Update loading text
+  document.querySelector('#loading p').textContent = translations[lang].processing;
+  
+  // Refresh results display if there are any
+  if (scannedData.length > 0) {
+    displayResults();
+  }
+}
+
+// Setup offline detection and notification
+function setupOfflineDetection() {
+  // Check if the user is offline when the page loads
+  if (!navigator.onLine) {
+    showOfflineNotification();
+  }
+  
+  // Listen for online status changes
+  window.addEventListener('online', () => {
+    hideOfflineNotification();
+  });
+  
+  window.addEventListener('offline', () => {
+    showOfflineNotification();
+  });
+}
+
+// Show offline notification
+function showOfflineNotification() {
+  // Check if notification already exists
+  if (!document.querySelector('.offline-notification')) {
+    const notification = document.createElement('div');
+    notification.className = 'offline-notification';
+    
+    notification.innerHTML = `
+      <div class="offline-content">
+        <span class="material-icons">wifi_off</span>
+        <span>${translations[currentLanguage].offline}</span>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto hide after 5 seconds
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 5000);
+  }
+}
+
+// Hide offline notification
+function hideOfflineNotification() {
+  const notification = document.querySelector('.offline-notification');
+  if (notification) {
+    notification.parentNode.removeChild(notification);
+  }
+}
+
+// Setup install prompt for PWA
+function setupInstallPrompt() {
+  // Create install button
+  const installButton = document.createElement('button');
+  installButton.className = 'install-button';
+  installButton.textContent = 'Install App';
+  document.querySelector('.header').appendChild(installButton);
+  
+  // Listen for beforeinstallprompt event
+  window.addEventListener('beforeinstallprompt', (e) => {
     // Prevent Chrome 67 and earlier from automatically showing the prompt
     e.preventDefault();
+    
     // Stash the event so it can be triggered later
     deferredPrompt = e;
-    // Update UI to notify the user they can add to home screen
+    
+    // Show the install button
     installButton.style.display = 'block';
-
-    installButton.addEventListener('click', () => {
-        // Hide our user interface that shows our install button
-        installButton.style.display = 'none';
-        // Show the install prompt
-        deferredPrompt.prompt();
-        // Wait for the user to respond to the prompt
-        deferredPrompt.userChoice.then((choiceResult) => {
-            if (choiceResult.outcome === 'accepted') {
-                console.log('User accepted the install prompt');
-            } else {
-                console.log('User dismissed the install prompt');
-            }
-            deferredPrompt = null;
-        });
-    });
-});
-
-// Handle app installed event
-window.addEventListener('appinstalled', (evt) => {
-    // Log install to analytics
-    console.log('PWA was installed');
-});
-
-// Add offline detection
-window.addEventListener('online', updateOnlineStatus);
-window.addEventListener('offline', updateOnlineStatus);
-
-function updateOnlineStatus() {
-    const status = navigator.onLine ? 'online' : 'offline';
-    console.log(`App is now ${status}`);
-    
-    if (!navigator.onLine) {
-        // Show an offline notification
-        const notification = document.createElement('div');
-        notification.classList.add('offline-notification');
-        notification.innerHTML = `
-            <div class="offline-content">
-                <span class="material-icons">wifi_off</span>
-                <span>You are currently offline</span>
-            </div>
-        `;
-        document.body.appendChild(notification);
+  });
+  
+  // Handle install button click
+  installButton.addEventListener('click', () => {
+    if (deferredPrompt) {
+      // Show the prompt
+      deferredPrompt.prompt();
+      
+      // Wait for the user to respond to the prompt
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the install prompt');
+          installButton.style.display = 'none';
+        } else {
+          console.log('User dismissed the install prompt');
+        }
         
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.remove();
-        }, 3000);
+        // Clear the saved prompt
+        deferredPrompt = null;
+      });
     }
+  });
+  
+  // Listen for app installed event
+  window.addEventListener('appinstalled', (event) => {
+    console.log('App was installed', event);
+    installButton.style.display = 'none';
+  });
 }
 
-// Add to your CSS
-const styleElement = document.createElement('style');
-styleElement.textContent = `
-.install-button {
-    background-color: white;
-    color: #4285f4;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 12px;
-    margin-left: auto;
-    font-weight: 500;
-    cursor: pointer;
-    display: none;
-    position: absolute;
-    top: 16px;
-    right: 16px;
-}
-
-.offline-notification {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: #333;
-    color: white;
-    padding: 12px 20px;
-    border-radius: 6px;
-    z-index: 1001;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-}
-
-.offline-content {
-    display: flex;
-    align-items: center;
-}
-
-.offline-content .material-icons {
-    margin-right: 8px;
-}
-`;
-document.head.appendChild(styleElement);
-    }
-    
-    // Call the init function
-    initApp();
-});
+// Initialize the application when the DOM is loaded
+document.addEventListener('DOMContentLoaded', initApp);

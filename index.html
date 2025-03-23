@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document Scanner with OCR</title>
     <!-- Load Tesseract.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
 </head>
 <body>
     <h1>Document Scanner</h1>
@@ -32,47 +32,37 @@
             const statusElement = document.getElementById('status');
             
             // Handle scan button click
-            scanButton.addEventListener('click', async function() {
+            scanButton.addEventListener('click', function() {
                 const file = imageInput.files[0];
                 if (!file) {
                     statusElement.textContent = "Please select an image first";
                     return;
                 }
                 
-                try {
-                    statusElement.textContent = "Processing image, please wait...";
-                    
-                    // Create a scheduler and worker
-                    const scheduler = Tesseract.createScheduler();
-                    const worker = await Tesseract.createWorker('eng');
-                    scheduler.addWorker(worker);
-                    
-                    // Progress updates
-                    const updateStatus = (message) => {
-                        console.log(message);
-                        if (message.status === 'recognizing text') {
-                            statusElement.textContent = `Processing: ${Math.round(message.progress * 100)}%`;
-                        } else {
-                            statusElement.textContent = `Processing: ${message.status}`;
-                        }
-                    };
-                    
-                    // Recognize text
-                    const result = await scheduler.addJob('recognize', file, { 
-                        logger: updateStatus 
-                    });
-                    
+                statusElement.textContent = "Processing image, please wait...";
+                
+                // Use simpler version 2.x API which is more stable
+                Tesseract.recognize(
+                    file,
+                    'eng',
+                    { 
+                        logger: info => {
+                            console.log(info);
+                            if (info.status === 'recognizing text') {
+                                statusElement.textContent = `Processing: ${Math.floor(info.progress * 100)}%`;
+                            } else {
+                                statusElement.textContent = `Processing: ${info.status}`;
+                            }
+                        } 
+                    }
+                ).then(({ data: { text } }) => {
                     // Display result
-                    resultText.value = result.data.text;
+                    resultText.value = text;
                     statusElement.textContent = "OCR complete!";
-                    
-                    // Cleanup
-                    await scheduler.terminate();
-                    
-                } catch (error) {
-                    console.error('OCR Error:', error);
-                    statusElement.textContent = "Error: " + error.message;
-                }
+                }).catch(err => {
+                    console.error('OCR Error:', err);
+                    statusElement.textContent = "Error: " + err.message;
+                });
             });
         });
     </script>

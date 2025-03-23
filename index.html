@@ -1,70 +1,35 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Scanner with OCR</title>
-    <!-- Load Tesseract.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
+    <title>OCR - Local Processing</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.0.0/dist/tesseract.min.js"></script>
 </head>
 <body>
-    <h1>Document Scanner</h1>
-    
-    <div>
-        <input type="file" id="imageInput" accept="image/*" capture="environment">
-        <button id="scanButton">Scan Document</button>
-    </div>
-    
-    <div id="status">Ready to scan</div>
-    
-    <div>
-        <h2>Scanned Text:</h2>
-        <textarea id="resultText" rows="10" cols="50" readonly></textarea>
-    </div>
+    <h1>Scan Document (ID, Passport)</h1>
+    <input type="file" id="imageUpload" accept="image/*">
+    <button onclick="extractText()">Extract Text</button>
+    <div id="result"></div>
 
     <script>
-        // Wait for the page to fully load
-        document.addEventListener('DOMContentLoaded', function() {
-            // Get elements
-            const imageInput = document.getElementById('imageInput');
-            const scanButton = document.getElementById('scanButton');
-            const resultText = document.getElementById('resultText');
-            const statusElement = document.getElementById('status');
-            
-            // Handle scan button click
-            scanButton.addEventListener('click', function() {
-                const file = imageInput.files[0];
-                if (!file) {
-                    statusElement.textContent = "Please select an image first";
-                    return;
-                }
-                
-                statusElement.textContent = "Processing image, please wait...";
-                
-                // Use simpler version 2.x API which is more stable
+        function extractText() {
+            const input = document.getElementById('imageUpload');
+            const file = input.files[0];
+
+            if (file) {
                 Tesseract.recognize(
                     file,
-                    'eng',
-                    { 
-                        logger: info => {
-                            console.log(info);
-                            if (info.status === 'recognizing text') {
-                                statusElement.textContent = `Processing: ${Math.floor(info.progress * 100)}%`;
-                            } else {
-                                statusElement.textContent = `Processing: ${info.status}`;
-                            }
-                        } 
+                    'eng', // Language can be adjusted based on document
+                    {
+                        logger: (m) => console.log(m), // To see OCR progress
                     }
                 ).then(({ data: { text } }) => {
-                    // Display result
-                    resultText.value = text;
-                    statusElement.textContent = "OCR complete!";
-                }).catch(err => {
-                    console.error('OCR Error:', err);
-                    statusElement.textContent = "Error: " + err.message;
+                    document.getElementById('result').innerText = 'Extracted Text: ' + text;
+                }).catch(error => {
+                    console.error('OCR Error:', error);
                 });
-            });
-        });
+            }
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Scanner with OCR</title>
+    <!-- Load Tesseract.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+</head>
+<body>
+    <h1>Document Scanner</h1>
+    
+    <div>
+        <input type="file" id="imageInput" accept="image/*" capture="environment">
+        <button id="scanButton">Scan Document</button>
+    </div>
+    
+    <div id="status">Ready to scan</div>
+    
+    <div>
+        <h2>Scanned Text:</h2>
+        <textarea id="resultText" rows="10" cols="50" readonly></textarea>
+    </div>
+
+    <script>
+        // Wait for the page to fully load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get elements
+            const imageInput = document.getElementById('imageInput');
+            const scanButton = document.getElementById('scanButton');
+            const resultText = document.getElementById('resultText');
+            const statusElement = document.getElementById('status');
+            
+            // Handle scan button click
+            scanButton.addEventListener('click', async function() {
+                const file = imageInput.files[0];
+                if (!file) {
+                    statusElement.textContent = "Please select an image first";
+                    return;
+                }
+                
+                try {
+                    statusElement.textContent = "Processing image, please wait...";
+                    
+                    // Create Tesseract worker
+                    const worker = await Tesseract.createWorker();
+                    
+                    // Add progress logger
+                    worker.setLogger(message => {
+                        console.log(message);
+                        statusElement.textContent = `${message.status}: ${Math.round(message.progress * 100)}%`;
+                    });
+                    
+                    // Initialize worker
+                    await worker.loadLanguage('eng');
+                    await worker.initialize('eng');
+                    
+                    // Recognize text
+                    const result = await worker.recognize(file);
+                    
+                    // Display result
+                    resultText.value = result.data.text;
+                    statusElement.textContent = "OCR complete!";
+                    
+                    // Cleanup
+                    await worker.terminate();
+                    
+                } catch (error) {
+                    console.error('OCR Error:', error);
+                    statusElement.textContent = "Error: " + error.message;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

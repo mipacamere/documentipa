@@ -607,6 +607,130 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Disable WhatsApp button initially
         whatsappBtn.disabled = true;
+
+        // Register Service Worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+                console.log('ServiceWorker registration successful with scope: ', registration.scope);
+            })
+            .catch(error => {
+                console.log('ServiceWorker registration failed: ', error);
+            });
+    });
+}
+
+// Add PWA install prompt
+let deferredPrompt;
+const installButton = document.createElement('button');
+installButton.classList.add('install-button');
+installButton.textContent = 'Install App';
+installButton.style.display = 'none';
+
+// Placeholder for the installation button in your UI
+// You can add this to your app header or as a fixed position button
+document.querySelector('.header').appendChild(installButton);
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent Chrome 67 and earlier from automatically showing the prompt
+    e.preventDefault();
+    // Stash the event so it can be triggered later
+    deferredPrompt = e;
+    // Update UI to notify the user they can add to home screen
+    installButton.style.display = 'block';
+
+    installButton.addEventListener('click', () => {
+        // Hide our user interface that shows our install button
+        installButton.style.display = 'none';
+        // Show the install prompt
+        deferredPrompt.prompt();
+        // Wait for the user to respond to the prompt
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                console.log('User accepted the install prompt');
+            } else {
+                console.log('User dismissed the install prompt');
+            }
+            deferredPrompt = null;
+        });
+    });
+});
+
+// Handle app installed event
+window.addEventListener('appinstalled', (evt) => {
+    // Log install to analytics
+    console.log('PWA was installed');
+});
+
+// Add offline detection
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+function updateOnlineStatus() {
+    const status = navigator.onLine ? 'online' : 'offline';
+    console.log(`App is now ${status}`);
+    
+    if (!navigator.onLine) {
+        // Show an offline notification
+        const notification = document.createElement('div');
+        notification.classList.add('offline-notification');
+        notification.innerHTML = `
+            <div class="offline-content">
+                <span class="material-icons">wifi_off</span>
+                <span>You are currently offline</span>
+            </div>
+        `;
+        document.body.appendChild(notification);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.remove();
+        }, 3000);
+    }
+}
+
+// Add to your CSS
+const styleElement = document.createElement('style');
+styleElement.textContent = `
+.install-button {
+    background-color: white;
+    color: #4285f4;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-left: auto;
+    font-weight: 500;
+    cursor: pointer;
+    display: none;
+    position: absolute;
+    top: 16px;
+    right: 16px;
+}
+
+.offline-notification {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #333;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 6px;
+    z-index: 1001;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+.offline-content {
+    display: flex;
+    align-items: center;
+}
+
+.offline-content .material-icons {
+    margin-right: 8px;
+}
+`;
+document.head.appendChild(styleElement);
     }
     
     // Call the init function

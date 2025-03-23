@@ -230,6 +230,39 @@ function addPhotoToGallery(file) {
       console.log(`Document ${i + 1} scanned:`, extractedData);
     }
     
+    async function performOCR(imageFile) {
+  try {
+    const worker = await Tesseract.createWorker();
+    
+    // Add a progress logger
+    worker.setLogger(m => {
+      console.log(m);
+      // Update your UI based on progress
+      document.getElementById('status').textContent = `${m.status}: ${Math.round(m.progress * 100)}%`;
+    });
+    
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    const result = await worker.recognize(imageFile);
+    
+    // Clear the processing message
+    document.getElementById('status').textContent = "Processing complete!";
+    
+    await worker.terminate();
+    return result.data.text;
+  } catch (error) {
+    console.error('OCR Error:', error);
+    document.getElementById('status').textContent = "Error processing image: " + error.message;
+    throw error;
+  }
+}
+
+const timeoutPromise = new Promise((_, reject) => {
+  setTimeout(() => reject(new Error('OCR process timed out')), 30000);
+});
+
+const result = await Promise.race([worker.recognize(imageFile), timeoutPromise]);
+    
     // Display results
     displayResults();
     
